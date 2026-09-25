@@ -1,7 +1,8 @@
 # open-jev-play-dino-runner
 
-A Chrome-style Dino Runner played by **[Laya](https://github.com/NandhaKishorM/laya)**, an open-source,
-non-generative decision model, over a WebSocket in near real time. An **ADK LoopAgent** improves the
+The **original Chrome Dino game** (the offline T-Rex runner, from the Chromium source, unmodified),
+played by **[Laya](https://github.com/NandhaKishorM/laya)**, an open-source, non-generative decision
+model, over a WebSocket in near real time. An **ADK LoopAgent** improves the
 policy Laya plays with, between games.
 
 - **System 1 (fast, inside a game):** every tick, the game state is described in words. Laya answers
@@ -27,8 +28,8 @@ The LLM is never in the real-time loop. Laya makes every in-game decision.
 
 ## Quick start
 
-Requirements: Python 3.10+, Node.js 22+ (for the headless runner and the JS tests), and for Laya a
-machine that can download about 2.3 GB of weights from Hugging Face. A GPU (CUDA or Apple MPS) is
+Requirements: Python 3.10+, Playwright's Chromium (for headless episodes), Node.js 18+ (only for
+the JS unit tests), and for Laya a machine that can download about 2.3 GB of weights from Hugging Face. A GPU (CUDA or Apple MPS) is
 strongly recommended; see [Measured so far](#measured-so-far).
 
 ```bash
@@ -36,6 +37,7 @@ git clone https://github.com/dyronrh/open-jev-play-dino-runner
 cd open-jev-play-dino-runner
 python -m venv .venv && source .venv/bin/activate
 pip install -e '.[laya,agent,dev]'
+playwright install chromium     # or set CHROMIUM_PATH to an existing Chromium binary
 ```
 
 **Watch Laya play** in the browser:
@@ -60,7 +62,7 @@ the policy can produce is finite, so this scores every one of them:
 python -m dino_agent.eval_questions --brain laya
 ```
 
-**Benchmark a policy** on fixed seeds, in real time, headless:
+**Benchmark a policy** on fixed seeds, in real time, in headless Chromium:
 
 ```bash
 python -m dino_agent.bench --brain laya --seeds 1-5 --max-seconds 120
@@ -80,8 +82,8 @@ Accepted policies are written to `runs/<timestamp>/best_policy.json`. Play one w
 **Tests:**
 
 ```bash
-pytest          # policy, server protocol, headless end-to-end, ADK loop with a scripted critic
-npm test        # simulation: determinism, physics, solvability, controller
+pytest          # policy, server protocol, original game end-to-end, ADK loop with a scripted critic
+npm test        # the game adapter: observation mapping, key driver, seeding
 ```
 
 None of the tests need the Laya weights or an API key.
@@ -89,12 +91,14 @@ None of the tests need the Laya weights or an API key.
 ## Architecture
 
 ```
-┌───────────── Browser page, or node web/headless.mjs ─────────────┐
-│ sim.js      deterministic game, fixed 60 Hz, seeded               │
-│ agent-client.js                                                   │
-│   ├─ sends the observation (numbers) when nothing is in flight    │
-│   ├─ drops answers older than max_age_ticks                       │
-│   └─ Controller: jump = one-tick pulse, duck = held hold_ticks    │
+┌──────── web/index.html in your browser, or headless Chromium ─────┐
+│ original/index.js  the Chrome Dino game, unmodified               │
+│ dino-env.js   reads Runner.instance_ → observation (numbers)      │
+│               Driver: presses Space / ↓ through the game's own    │
+│               key handlers; duck is held for hold_ticks           │
+│ bridge.js + agent-client.js                                       │
+│   ├─ sends the observation every frame when nothing is in flight  │
+│   └─ drops answers older than max_age_ticks                       │
 └──────────────────────────┬────────────────────────────────────────┘
                            │ WebSocket, JSON, 1 message in flight
 ┌──────────────────────────▼────────────────────────────────────────┐
@@ -121,7 +125,9 @@ Design decisions, and why:
 | Stale answers are dropped | An answer for a state more than `max_age_ticks` old is discarded, not applied. |
 | Duck expires | Duck is held for `hold_ticks` unless renewed, so a dropped connection cannot leave the dino ducking forever. |
 | Single inference worker | One GPU does one forward pass at a time. Parallel calls only interleave and inflate latency. |
-| The game is always solvable | Unlike the original, every gap leaves time for a full jump plus a reaction. A death measures the decision-maker, not bad luck (`web/test/sim.test.js` proves it with an ideal bot). |
+| The original game, untouched | `web/original/` is the Chromium code and sprites byte-for-byte. The agent acts only by pressing keys through the game's own handlers, so every game rule applies unchanged. |
+| Same page for people and for evaluation | Headless episodes load the same page in Chromium (`?autoplay=1`), so benchmark numbers are what you see in the browser. |
+| Seeded obstacles | While the game creates an obstacle, `Math.random` is swapped for a seeded PRNG, so a seed gives the same obstacle sequence. The game still runs on real frame time, so two runs of a seed are close but not identical. Compare medians over several seeds, not single runs. |
 | The Judge is code | Acceptance is a deterministic median over fixed seeds. The LLM proposes; it cannot argue a policy into being accepted. |
 | The Critic edits JSON, not code | Every patch is schema-validated (`policy.validate_policy`) before it is played. |
 
@@ -216,22 +222,26 @@ fine-tuning.
 
 ## Measured so far
 
-All numbers below are for the oracle brain with a simulated delay. **They are not Laya results.**
-Real Laya numbers still have to be collected with `eval_questions` and `bench`; please add them
-here. Setup: 3 seeds, 130 s each, default policy.
+All numbers below are for the oracle brain (perfect perception) with a simulated delay, playing the
+original game in headless Chromium with the default policy. **They are not Laya results.** Real Laya
+numbers still have to be collected with `eval_questions` and `bench`; please add them here.
 
-| Simulated latency | Like | Result |
-|---|---|---|
-| 0 ms | – | every seed survives to top speed (median score 2312 over 150 s, 6 seeds) |
-| 20 ms | Laya multilingual on a GPU | 3/3 survive to top speed |
-| 35 ms | Laya English on a GPU | 3/3 survive to top speed |
-| 60 ms | Laya multilingual on a CPU | 3/3 survive to top speed |
-| 140 ms | Laya English on a CPU | dies early (median 73) |
+| Simulated latency | Like | Seeds × 90 s | Result |
+|---|---|---|---|
+| 0 ms | – | 6 | 5/6 survive at top speed (score ≈ 1440); one death on three tall cacti at speed 7.2 |
+| 20 ms | Laya multilingual on a GPU | 3 | median 1001, 0/3 survive (deaths on groups of tall cacti) |
+| 35 ms | Laya English on a GPU | 3 | median 978, 0/3 survive |
+| 60 ms | Laya multilingual on a CPU | 3 | median 616, 0/3 survive (two on low pterodactyls) |
+| 140 ms | Laya English on a CPU | 3 | median 66: dies at the first obstacles |
 
-At 140 ms a decision arrives only every ~8 ticks, which can skip the whole default "close" window.
-Widening it (`ttc_bins` 30/18/5) lifts the 140 ms median to 1516. The same change breaks
-zero-latency play, though: it jumps too early for three tall cacti. No single window suits every
-latency, which is exactly the kind of trade-off the improvement loop exists to find per machine.
+What this says:
+- The pipeline and the default policy work: with no latency, the original game is played to top
+  speed on most seeds.
+- **Latency is the main enemy.** Even at 20 ms, groups of tall cacti at high speed kill the default
+  policy. At 140 ms a decision arrives only every ~8 frames, which can skip the whole "close" window.
+- Hand-tried later jump windows (`ttc_bins` 30/10/4, 30/11/5, 30/9/3) did not beat the default at
+  35 ms. Runs are noisy, so tuning needs several seeds, which is what the improvement loop does.
+- So: use a GPU, and let the loop tune `ttc_bins`, `lead_frames` and the rules for your machine.
 
 Latency figures for Laya come from the laya-playground benchmark on an M1 Max (warm, one call): 34 ms
 English / 21 ms multilingual on the GPU, 139 / 58 ms on the CPU.
@@ -240,15 +250,16 @@ English / 21 ms multilingual on the GPU, 139 / 58 ms on the CPU.
 
 | Path | What it is |
 |---|---|
-| `web/sim.js` | The game: deterministic, seeded, fixed 60 Hz, no DOM. Shared by browser and Node |
-| `web/agent-client.js` | WebSocket client with flow control, staleness check, reconnect; the `Controller` |
-| `web/main.js`, `web/index.html` | Browser page: draws the game, lets you or the server brain play |
-| `web/headless.mjs` | Plays one real-time episode against the server, prints a JSON summary |
-| `web/test/` | Node tests for the simulation and the controller |
+| `web/original/` | The original Chrome Dino game (Chromium code, sprites, sounds), unmodified, with its licences |
+| `web/index.html` | The page: the original game's markup plus the decision panel |
+| `web/dino-env.js` | Adapter: game state → observation, key driver, obstacle seeding |
+| `web/bridge.js` | Wires the game to the server; `?autoplay=1` runs one headless episode |
+| `web/agent-client.js` | WebSocket client with flow control, staleness check, reconnect |
+| `web/test/` | Node tests for the adapter, against a fake runner |
 | `dino_agent/policy.py` | Policy schema, validation, patching, text rendering, answers → action |
 | `dino_agent/brains.py` | `LayaBrain` (the model) and `OracleBrain` (ground truth, for baselines and tests) |
 | `dino_agent/server.py` | aiohttp server: page, `/ws`, `/health`, `/policy` |
-| `dino_agent/arena.py` | In-process server plus headless episodes; the episode report |
+| `dino_agent/arena.py` | In-process server plus headless Chromium episodes; the episode report |
 | `dino_agent/bench.py` | CLI: benchmark a policy over seeds |
 | `dino_agent/eval_questions.py` | CLI: exact perception accuracy over every scene a policy can describe |
 | `dino_agent/loop.py` | The ADK agents and the loop CLI |
@@ -271,8 +282,8 @@ Good first contributions:
 Ground rules:
 
 1. Run `pytest` and `npm test` before opening a PR. Both run without the model or an API key.
-2. Keep the simulation deterministic. Any randomness goes through the seeded `rng`, and
-   `sim.test.js` must keep proving the game is solvable.
+2. Do not edit `web/original/`. Everything the project needs is done from outside through
+   `Runner.instance_`; that is what makes it the original game.
 3. Keep decisions in the model. Do not add code paths that pick an action without Laya's answers
    when running `--brain laya`. Baselines belong in `OracleBrain` and must be labelled as such.
 4. A protocol change bumps `PROTOCOL_VERSION` on both sides (`server.py`, `agent-client.js`).
@@ -288,8 +299,11 @@ Ground rules:
 - The Laya integration guidance used here (perception questions, words instead of numbers, one
   model and one queue) comes from the [laya-playground](https://github.com/wdobry/laya-playground)
   integration skill.
-- The game is an independent re-implementation inspired by the Chrome Dino game. No Chromium code
-  or assets are included.
+- The game is the Chrome offline T-Rex runner by The Chromium Authors, BSD-3-Clause
+  (`web/original/LICENSE.chromium`), as extracted by
+  [wayou/t-rex-runner](https://github.com/wayou/t-rex-runner) (BSD-3-Clause,
+  `web/original/LICENSE.t-rex-runner`). It is vendored unmodified; see `web/original/README.md`.
+  This project is not affiliated with or endorsed by Google.
 - Google ADK is Apache-2.0.
 
 This repository does not have a licence file yet. Until the owner adds one, all rights are reserved

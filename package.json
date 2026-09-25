@@ -2,8 +2,8 @@
   "name": "open-jev-play-dino-runner",
   "private": true,
   "type": "module",
-  "description": "Dino Runner played by the Laya decision model over WebSocket",
-  "engines": { "node": ">=22" },
+  "description": "The original Chrome Dino game played by the Laya decision model over WebSocket",
+  "engines": { "node": ">=18" },
   "scripts": {
     "test": "node --test web/test/*.test.js"
   }

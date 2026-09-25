@@ -1,13 +1,14 @@
 """The ADK loop with a scripted Critic (no LLM, no API key) and the oracle brain (no model)."""
 import json
-import shutil
 from pathlib import Path
 
 import pytest
 
+from .conftest import CHROMIUM
+
 pytest.importorskip("google.adk")
-if shutil.which("node") is None:
-    pytest.skip("needs node >= 22", allow_module_level=True)
+if not CHROMIUM:
+    pytest.skip("needs Playwright Chromium", allow_module_level=True)
 
 from google.adk.agents import BaseAgent  # noqa: E402
 from pydantic import ConfigDict  # noqa: E402

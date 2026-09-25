@@ -165,7 +165,7 @@ class Judge(BaseAgent):
         (self.out_dir / f"policy_{report['policy']}.json").write_text(json.dumps(policy, indent=2) + "\n")
 
 
-CRITIC_BRIEF = """You tune the policy of an agent that plays the Chrome-style Dino Runner game.
+CRITIC_BRIEF = """You tune the policy of an agent that plays the original Chrome Dino (T-Rex runner) game.
 
 How the game is played, every tick, in real time:
 1. Code describes the scene in English using the policy's phrases: the dino's state, the nearest
@@ -178,8 +178,9 @@ How the game is played, every tick, in real time:
    for each question in "when", the answer is in the list with probability >= min_prob. First match
    wins; otherwise the action is "none". "duck" is held for hold_ticks unless renewed.
 
-Game physics: a jump lasts about 35-38 ticks. Tall cacti are 50 px high, small ones 35 px, and groups
-of 2-3 are wider, so they need a later jump. A pterodactyl "bird_low" must be jumped, "bird_mid" must
+Game facts (the original game): a full jump lasts about 35 ticks and speed grows from 6 to 13
+px per tick. Tall cacti are 50 px high, small ones 35 px, and groups of 2-3 are wider, so they need a
+later jump. Obstacle gaps are random and can be tight at high speed. A pterodactyl "bird_low" must be jumped, "bird_mid" must
 be ducked under, "bird_high" is harmless unless the dino is in the air. Decisions arrive about once
 per round trip, so a narrow jump window can be skipped entirely when latency is high; a wide window
 makes the dino jump too early. Laya does best when the phrases say plainly what is where, when each

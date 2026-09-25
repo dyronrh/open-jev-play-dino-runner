@@ -1,4 +1,3 @@
-import shutil
 from pathlib import Path
 
 import pytest
@@ -8,6 +7,8 @@ from dino_agent.arena import Arena
 from dino_agent.brains import OracleBrain
 from dino_agent.policy import load_policy
 from dino_agent.server import PolicyStore, create_app
+
+from .conftest import needs_chromium
 
 ROOT = Path(__file__).resolve().parent.parent
 POLICY = load_policy(ROOT / "policies" / "default.json")
@@ -71,10 +72,20 @@ async def test_episode_end_is_recorded(client):
     assert body["episodes"] == 1
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs node >= 22")
-async def test_headless_episode_end_to_end():
+async def test_index_serves_the_original_game(client):
+    html = await (await client.get("/")).text()
+    assert '/web/original/index.js' in html and 'id="audio-resources"' in html
+    js = await client.get("/web/original/index.js")
+    assert js.status == 200 and "The Chromium Authors" in await js.text()
+    assert (await client.get("/web/original/assets/default_100_percent/100-offline-sprite.png")).status == 200
+
+
+@needs_chromium
+async def test_original_game_end_to_end():
+    """The real page in headless Chromium: the original game, driven over the WebSocket."""
     async with Arena(OracleBrain(), POLICY) as arena:
-        report = await arena.evaluate(POLICY, [1, 2], max_seconds=8, parallel=2)
+        report = await arena.evaluate(POLICY, [1, 2], max_seconds=10, parallel=2)
     assert report["errors"] == []
-    assert report["episodes"] == 2 and report["survived"] == 2  # perfect perception clears the start
-    assert report["per_seed"][0]["score"] > 0
+    assert report["episodes"] == 2
+    assert all(s["score"] > 0 for s in report["per_seed"])
+    assert all(s["outcome"] in ("crash", "timeout") for s in report["per_seed"])

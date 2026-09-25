@@ -10,5 +10,6 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -e '.[agent,dev]'
+      - run: playwright install --with-deps chromium
       - run: npm test
       - run: pytest -q

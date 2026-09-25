@@ -1,10 +1,10 @@
 [project]
 name = "dino-agent"
 version = "0.1.0"
-description = "Dino Runner played by the Laya decision model over WebSocket, improved by an ADK LoopAgent"
+description = "The original Chrome Dino game played by the Laya decision model over WebSocket, improved by an ADK LoopAgent"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["aiohttp>=3.9"]
+dependencies = ["aiohttp>=3.9", "playwright>=1.40"]
 
 [project.optional-dependencies]
 laya = ["laya>=0.3.4"]

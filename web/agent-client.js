@@ -1,4 +1,4 @@
-// WebSocket client for the decision server, shared by the browser page and the headless runner.
+// WebSocket client for the decision server, used by web/bridge.js.
 //
 // Flow control: at most one observation is in flight. The next one is sent only after the answer
 // arrives (or times out), so the server never builds a queue and every answer is about a fresh
@@ -6,25 +6,6 @@
 
 export const PROTOCOL_VERSION = 1;
 const now = () => (globalThis.performance ? performance.now() : Date.now());
-
-// Turns decisions into game input. Jump is a one-tick pulse; duck is held for `hold` ticks unless
-// a later decision renews or cancels it, so a lost connection can never leave the dino ducking.
-export class Controller {
-  constructor() {
-    this.jumpPending = false;
-    this.duckUntil = 0;
-  }
-  apply(action, tick, hold = 12) {
-    if (action === 'jump') { this.jumpPending = true; this.duckUntil = 0; }
-    else if (action === 'duck') this.duckUntil = tick + hold;
-    else this.duckUntil = 0;
-  }
-  input(tick) {
-    const jump = this.jumpPending;
-    this.jumpPending = false;
-    return { jump, duck: tick < this.duckUntil };
-  }
-}
 
 export class AgentClient {
   constructor(url, { WebSocketImpl = globalThis.WebSocket, reconnect = true, timeoutMs = 1000, onAct, onStatus } = {}) {
