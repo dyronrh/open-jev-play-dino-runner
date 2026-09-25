@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "checkpoint": "english",
+  "lead_frames": 0,
+  "hold_ticks": 12,
+  "ttc_bins": {
+    "far": 30,
+    "near": 13,
+    "close": 6
+  },
+  "phrases": {
+    "dino": {
+      "ground": "The dino is running on the ground.",
+      "air": "The dino is in the air, in the middle of a jump.",
+      "duck": "The dino is running while ducking low."
+    },
+    "obstacle": {
+      "cactus_small_1": "A single small cactus stands on the ground",
+      "cactus_small_2": "A pair of small cacti stands on the ground",
+      "cactus_small_3": "A row of three small cacti stands on the ground",
+      "cactus_large_1": "A single tall cactus stands on the ground",
+      "cactus_large_2": "A pair of tall cacti stands on the ground",
+      "cactus_large_3": "A row of three tall cacti stands on the ground",
+      "bird_low": "A pterodactyl flies just above the ground, at the height of the dino's legs",
+      "bird_mid": "A pterodactyl flies at the height of the dino's head",
+      "bird_high": "A pterodactyl flies high in the sky, well above the dino's head"
+    },
+    "distance": {
+      "far": "far ahead of the dino.",
+      "near": "some distance ahead of the dino and getting closer.",
+      "close": "close in front of the dino.",
+      "touching": "right in front of the dino, almost touching it."
+    },
+    "clear": "Nothing is ahead of the dino; the path is clear."
+  },
+  "questions": {
+    "obstacle": {
+      "type": "choice",
+      "instructions": "Where is the thing ahead of the dino?",
+      "criteria": {
+        "ground": "on the ground or just above it, at the height of the dino's legs",
+        "head": "flying at the height of the dino's head",
+        "sky": "flying high in the sky above the dino",
+        "none": "nothing is ahead, the path is clear"
+      }
+    },
+    "distance": {
+      "type": "choice",
+      "instructions": "How far ahead of the dino is it?",
+      "criteria": {
+        "far": "far ahead",
+        "near": "some distance ahead, getting closer",
+        "close": "close in front",
+        "touching": "right in front, almost touching"
+      }
+    }
+  },
+  "rules": [
+    {
+      "action": "jump",
+      "when": {
+        "obstacle": [
+          "ground"
+        ],
+        "distance": [
+          "close"
+        ]
+      },
+      "dino": [
+        "ground",
+        "duck"
+      ]
+    },
+    {
+      "action": "duck",
+      "when": {
+        "obstacle": [
+          "head"
+        ],
+        "distance": [
+          "close",
+          "touching"
+        ]
+      },
+      "dino": [
+        "ground",
+        "duck"
+      ]
+    }
+  ],
+  "min_prob": {
+    "obstacle": 0.35,
+    "distance": 0.35
+  }
+}

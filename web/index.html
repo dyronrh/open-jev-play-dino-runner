@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dino Runner · Laya</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg: #f7f7f7; --fg: #535353; --muted: #8a8a8a; --line: #d8d8d8; --accent: #2a6fdb; --bad: #c0392b; --ok: #1e8e3e; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151515; --fg: #d6d6d6; --muted: #8a8a8a; --line: #333; --accent: #6ea2ff; --bad: #ff7a6b; --ok: #58c27d; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 16px; margin: 0 0 12px; letter-spacing: .02em; }
+  canvas { width: 100%; height: auto; display: block; border-bottom: 1px solid var(--line); image-rendering: pixelated; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 12px 0; }
+  .bar label { display: flex; gap: 6px; align-items: center; }
+  input, select, button { font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; }
+  button { cursor: pointer; }
+  input[type=number] { width: 6em; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px 16px; margin: 8px 0 12px; }
+  .stats div span { display: block; color: var(--muted); font-size: 12px; }
+  .panel { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  .panel .text { margin: 0 0 8px; min-height: 2.9em; }
+  .q { display: grid; grid-template-columns: 7em 1fr; gap: 4px 8px; margin: 4px 0; align-items: center; }
+  .meter { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--accent); }
+  .action { font-weight: bold; }
+  #status.ready { color: var(--ok); } #status.bad { color: var(--bad); }
+  .muted { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Dino Runner, played by Laya</h1>
+  <canvas id="stage" width="600" height="150"></canvas>
+  <div class="bar">
+    <label>Player <select id="mode"><option value="agent">Server brain (over WebSocket)</option><option value="human">You (Space / ↑ jump, ↓ duck)</option></select></label>
+    <label>Seed <input id="seed" type="number" value="1" min="1"></label>
+    <button id="restart">Restart (R)</button>
+    <span>Server: <span id="status">connecting</span></span>
+  </div>
+  <div class="stats">
+    <div><span>score</span><b id="score">0</b></div>
+    <div><span>best</span><b id="best">0</b></div>
+    <div><span>speed</span><b id="speed">0</b></div>
+    <div><span>round trip p50 / p95</span><b id="rtt">–</b></div>
+    <div><span>decisions / stale</span><b id="decisions">0 / 0</b></div>
+  </div>
+  <div class="panel">
+    <p class="text" id="text">Waiting for the first decision…</p>
+    <div id="answers"></div>
+    <div>Action: <span class="action" id="action">–</span> <span class="muted" id="reason"></span></div>
+  </div>
+  <p class="muted">Every tick the page sends the game state to the server; the server describes it in words, Laya answers two questions, and the answer comes back as jump, duck or nothing. See README.md.</p>
+</main>
+<script type="module" src="/web/main.js"></script>
+</body>
+</html>

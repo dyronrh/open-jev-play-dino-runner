@@ -1,0 +1,23 @@
+[project]
+name = "dino-agent"
+version = "0.1.0"
+description = "Dino Runner played by the Laya decision model over WebSocket, improved by an ADK LoopAgent"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["aiohttp>=3.9"]
+
+[project.optional-dependencies]
+laya = ["laya>=0.3.4"]
+agent = ["google-adk>=1.0,<3"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["dino_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
