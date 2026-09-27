@@ -54,7 +54,8 @@ export function observe(runner, tick) {
   return {
     tick,
     speed: +runner.currentSpeed.toFixed(3),
-    dino: { x: t.xPos, width, elev: +(t.groundYPos - t.yPos).toFixed(2), jumping: !!t.jumping, ducking: !!t.ducking },
+    dino: { x: t.xPos, width, elev: +(t.groundYPos - t.yPos).toFixed(2), jumping: !!t.jumping,
+            falling: !!t.jumping && t.jumpVelocity > 0, vy: +(t.jumpVelocity || 0).toFixed(2), ducking: !!t.ducking },
     obstacles: runner.horizon.obstacles
       .filter(o => o.xPos + o.width > t.xPos) // not yet passed
       .slice(0, 2)
@@ -67,10 +68,16 @@ export function observe(runner, tick) {
 
 // Presses keys through the game's own handlers. Jump is a tap (like a bot pressing space);
 // duck is held until `hold` ticks pass without renewal, then released.
+// A jump that arrives while the dino is still in the air is buffered and pressed on landing (the game
+// ignores jump mid-air), unless the dino already jumped after the observation it was decided on.
+export const JUMP_BUFFER_TICKS = 8;
+
 export class Driver {
   constructor(runner) {
     this.runner = runner;
     this.duckUntil = -1;
+    this.jumpAt = -1;      // tick a buffered jump arrived, or -1
+    this.lastJump = -1;    // tick the last jump was pressed
   }
 
   key(type, keyCode) {
@@ -80,13 +87,16 @@ export class Driver {
     else this.runner.onKeyUp(e);
   }
 
-  apply(action, tick, hold = 12) {
+  // `obsTick` is the tick of the observation the action was decided on.
+  apply(action, tick, hold = 12, obsTick = tick) {
     const t = this.runner.tRex;
     if (action === 'jump') {
       if (t.ducking) this.releaseDuck(); // the game ignores jump while ducking
       this.duckUntil = -1;
-      if (!t.jumping) this.key('keydown', KEY.JUMP);
+      if (!t.jumping) this.jump(tick);
+      else if (this.lastJump < obsTick) this.jumpAt = tick; // decided for after this jump: press on landing
     } else if (action === 'duck') {
+      this.jumpAt = -1;
       this.duckUntil = tick + hold;
       if (!t.ducking) this.key('keydown', KEY.DUCK);
     } else if (t.ducking) {
@@ -94,14 +104,24 @@ export class Driver {
     }
   }
 
+  jump(tick) {
+    this.jumpAt = -1;
+    this.lastJump = tick;
+    this.key('keydown', KEY.JUMP);
+  }
+
   releaseDuck() {
     this.duckUntil = -1;
     this.key('keyup', KEY.DUCK);
   }
 
-  // Call once per tick: releases an expired duck.
+  // Call once per tick: releases an expired duck, presses a buffered jump once the dino has landed.
   tick(tick) {
     if (this.duckUntil >= 0 && tick >= this.duckUntil) this.releaseDuck();
+    if (this.jumpAt >= 0) {
+      if (tick - this.jumpAt > JUMP_BUFFER_TICKS) this.jumpAt = -1;
+      else if (!this.runner.tRex.jumping && !this.runner.crashed) this.jump(tick);
+    }
   }
 }
 

@@ -35,10 +35,13 @@ QUESTION_OPTIONS = {
     "obstacle": ("ground", "head", "sky", "none"),
     "distance": ("far", "near", "close", "touching"),
 }
-DINO_STATES = ("ground", "air", "duck")
+DINO_STATES = ("ground", "air", "falling", "duck")
+# "falling" (in the air, on the way down) is optional: without its phrase the dino is just "air".
+REQUIRED_DINO_STATES = ("ground", "air", "duck")
 ACTIONS = ("jump", "duck", "none")
 CHECKPOINTS = ("english", "multilingual", "typed-decisions")
 TOP_LEVEL_KEYS = {"version", "checkpoint", "lead_frames", "hold_ticks", "ttc_bins", "phrases", "questions", "rules", "min_prob"}
+OPTIONAL_KEYS = {"width_frac", "predict_landing"}  # absent means the default, so older policy files stay valid
 MAX_PHRASE_CHARS = 200
 
 
@@ -68,13 +71,16 @@ def _phrase(value: Any, where: str) -> None:
 
 def validate_policy(p: dict) -> None:
     _require(isinstance(p, dict), "policy must be a JSON object")
-    unknown = set(p) - TOP_LEVEL_KEYS
+    unknown = set(p) - TOP_LEVEL_KEYS - OPTIONAL_KEYS
     _require(not unknown, f"unknown top-level keys: {sorted(unknown)}")
     missing = TOP_LEVEL_KEYS - set(p)
     _require(not missing, f"missing top-level keys: {sorted(missing)}")
     _require(p["version"] == 1, "version must be 1")
     _require(p["checkpoint"] in CHECKPOINTS, f"checkpoint must be one of {CHECKPOINTS}")
     _require(isinstance(p["lead_frames"], (int, float)) and -10 <= p["lead_frames"] <= 20, "lead_frames must be a number in [-10, 20]")
+    wf = p.get("width_frac", 0.0)
+    _require(isinstance(wf, (int, float)) and 0 <= wf <= 1, "width_frac must be a number in [0, 1]")
+    _require(isinstance(p.get("predict_landing", False), bool), "predict_landing must be true or false")
     _require(isinstance(p["hold_ticks"], int) and 1 <= p["hold_ticks"] <= 60, "hold_ticks must be an integer in [1, 60]")
 
     bins = p["ttc_bins"]
@@ -84,7 +90,9 @@ def validate_policy(p: dict) -> None:
 
     ph = p["phrases"]
     _require(isinstance(ph, dict) and set(ph) == {"dino", "obstacle", "distance", "clear"}, "phrases needs dino, obstacle, distance, clear")
-    for group, keys in (("dino", DINO_STATES), ("obstacle", OBSTACLE_KINDS), ("distance", QUESTION_OPTIONS["distance"])):
+    _require(isinstance(ph["dino"], dict) and set(REQUIRED_DINO_STATES) <= set(ph["dino"]) <= set(DINO_STATES),
+             f"phrases.dino needs {list(REQUIRED_DINO_STATES)} and may also have 'falling'")
+    for group, keys in (("dino", tuple(ph["dino"])), ("obstacle", OBSTACLE_KINDS), ("distance", QUESTION_OPTIONS["distance"])):
         _require(isinstance(ph[group], dict) and set(ph[group]) == set(keys), f"phrases.{group} needs exactly {list(keys)}")
         for k, v in ph[group].items():
             _phrase(v, f"phrases.{group}.{k}")
@@ -107,6 +115,7 @@ def validate_policy(p: dict) -> None:
         _require(isinstance(r, dict) and set(r) == {"action", "when", "dino"}, f"rules[{i}] needs exactly action, when, dino")
         _require(r["action"] in ("jump", "duck"), f"rules[{i}].action must be jump or duck")
         _require(isinstance(r["dino"], list) and r["dino"] and set(r["dino"]) <= set(DINO_STATES), f"rules[{i}].dino must be a subset of {DINO_STATES}")
+        _require("falling" not in r["dino"] or "falling" in ph["dino"], f"rules[{i}] uses dino state 'falling', which needs phrases.dino.falling")
         _require(isinstance(r["when"], dict) and r["when"], f"rules[{i}].when must be a non-empty object")
         for qid, opts in r["when"].items():
             _require(qid in QUESTION_OPTIONS, f"rules[{i}].when refers to unknown question {qid!r}")
@@ -146,6 +155,20 @@ class Scene:
     truth: dict[str, str] = field(default_factory=dict)
 
 
+GRAVITY = 0.6  # the original game's, in px per frame per frame
+
+
+def ticks_to_land(elev: float, vy: float) -> int:
+    """Frames until a jumping dino is back on the ground. `vy` is the game's jumpVelocity (positive
+    is down), `elev` its height above the ground in px."""
+    t = 0
+    while elev > 0 and t < 120:
+        elev -= vy
+        vy += GRAVITY
+        t += 1
+    return t
+
+
 def distance_bin(ttc: float, bins: dict) -> str:
     if ttc >= bins["far"]:
         return "far"
@@ -160,16 +183,24 @@ def render(obs: dict, policy: dict, latency_ms: float = 0.0) -> Scene:
     """Describe the observation in words. `latency_ms` is the expected delay until the answer is
     applied; the scene is described as it will be by then, not as it is now."""
     d = obs["dino"]
-    dino = "air" if d.get("jumping") else "duck" if d.get("ducking") else "ground"
     ph = policy["phrases"]
+    lead = latency_ms * TICK_HZ / 1000.0 + policy["lead_frames"]
+    dino = "air" if d.get("jumping") else "duck" if d.get("ducking") else "ground"
+    if (dino == "air" and policy.get("predict_landing") and d.get("vy") is not None
+            and ticks_to_land(float(d.get("elev", 0)), float(d["vy"])) <= lead):
+        dino = "ground"  # it will have landed by the time the answer is applied; the page buffers a jump
+    if dino == "air" and d.get("falling") and "falling" in ph["dino"]:
+        dino = "falling"
     obstacles = obs.get("obstacles") or []
     if not obstacles:
         return Scene(f'{ph["dino"][dino]} {ph["clear"]}', dino, None, None, None,
                      {"obstacle": "none", "distance": "far"})
     o = obstacles[0]
     speed = max(float(obs["speed"]), 0.1)
-    gap = float(o["x"]) - (float(d["x"]) + float(d["width"]))
-    ttc = gap / speed - (latency_ms * TICK_HZ / 1000.0 + policy["lead_frames"])
+    # Time to contact is measured to a point width_frac of the way into the obstacle: at 0.5 the
+    # dino aims at the middle of a group, so wide groups of cacti get a later jump than single ones.
+    gap = float(o["x"]) + policy.get("width_frac", 0.0) * float(o.get("width", 0)) - (float(d["x"]) + float(d["width"]))
+    ttc = gap / speed - lead
     kind = o["kind"] if o["kind"] in OBSTACLE_KINDS else "cactus_small_1"
     bin_ = distance_bin(ttc, policy["ttc_bins"])
     text = f'{ph["dino"][dino]} {ph["obstacle"][kind]} {ph["distance"][bin_]}'

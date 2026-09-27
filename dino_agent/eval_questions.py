@@ -17,7 +17,7 @@ import time
 from collections import Counter, defaultdict
 
 from .brains import make_brain
-from .policy import DINO_STATES, OBSTACLE_KINDS, QUESTION_OPTIONS, Scene, load_policy, render
+from .policy import OBSTACLE_KINDS, QUESTION_OPTIONS, Scene, load_policy, render
 from .server import add_brain_args
 
 
@@ -26,8 +26,9 @@ def scenes(policy: dict) -> list[Scene]:
     ttc_for = {"far": bins["far"] + 5, "near": (bins["far"] + bins["near"]) / 2,
                "close": (bins["near"] + bins["close"]) / 2, "touching": bins["close"] - 2}
     out = []
-    for dino in DINO_STATES:
-        d = {"x": 50, "width": 44, "elev": 0, "jumping": dino == "air", "ducking": dino == "duck"}
+    for dino in policy["phrases"]["dino"]:
+        d = {"x": 50, "width": 44, "elev": 0, "jumping": dino in ("air", "falling"), "falling": dino == "falling",
+             "ducking": dino == "duck"}
         out.append(render({"tick": 0, "speed": 10, "dino": d, "obstacles": []}, policy))
         for kind in OBSTACLE_KINDS:
             for dist, ttc in ttc_for.items():

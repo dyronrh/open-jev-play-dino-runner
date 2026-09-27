@@ -1,19 +1,19 @@
 // Unit tests for the adapter, against a fake runner shaped like the original game's objects.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Driver, obstacleKind, observe, rng, score, seedObstacles, KEY } from '../dino-env.js';
+import { Driver, JUMP_BUFFER_TICKS, obstacleKind, observe, rng, score, seedObstacles, KEY } from '../dino-env.js';
 
 const small = size => ({ typeConfig: { type: 'CACTUS_SMALL', height: 35 }, size, xPos: 300, yPos: 105, width: 17 * size });
 const large = size => ({ typeConfig: { type: 'CACTUS_LARGE', height: 50 }, size, xPos: 300, yPos: 90, width: 25 * size });
 const bird = yPos => ({ typeConfig: { type: 'PTERODACTYL', height: 40 }, size: 1, xPos: 300, yPos, width: 46 });
 
-function fakeRunner({ obstacles = [], jumping = false, ducking = false, yPos = 93 } = {}) {
+function fakeRunner({ obstacles = [], jumping = false, ducking = false, yPos = 93, jumpVelocity = 0 } = {}) {
   const keys = [];
   const runner = {
     currentSpeed: 8.123456,
     distanceRan: 1000,
     distanceMeter: { getActualDistance: d => Math.round(d * 0.025) },
-    tRex: { xPos: 23, yPos, groundYPos: 93, jumping, ducking, config: { WIDTH: 44, WIDTH_DUCK: 59 } },
+    tRex: { xPos: 23, yPos, groundYPos: 93, jumping, ducking, jumpVelocity, config: { WIDTH: 44, WIDTH_DUCK: 59 } },
     horizon: { obstacles, addNewObstacle() { this.obstacles.push({ r: Math.random() }); } },
     keys,
     onKeyDown(e) {
@@ -34,13 +34,19 @@ test('obstacle kinds follow the original types, sizes and bird heights', () => {
   assert.equal(obstacleKind(bird(50)), 'bird_high');
 });
 
+test('observe says the dino is falling only on the way down of a jump', () => {
+  assert.equal(observe(fakeRunner({ jumping: true, jumpVelocity: -4 }), 1).dino.falling, false); // rising
+  assert.equal(observe(fakeRunner({ jumping: true, jumpVelocity: 3 }), 1).dino.falling, true);
+  assert.equal(observe(fakeRunner({ jumping: false, jumpVelocity: 3 }), 1).dino.falling, false);
+});
+
 test('observe converts the game state into protocol units', () => {
   const passed = { ...small(1), xPos: 0 }; // right edge 17 < dino x 23: already behind the dino
-  const r = fakeRunner({ obstacles: [passed, bird(75), large(1)], yPos: 60, jumping: true });
+  const r = fakeRunner({ obstacles: [passed, bird(75), large(1)], yPos: 60, jumping: true, jumpVelocity: -4 });
   const obs = observe(r, 42);
   assert.equal(obs.tick, 42);
   assert.equal(obs.speed, 8.123);
-  assert.deepEqual(obs.dino, { x: 23, width: 44, elev: 33, jumping: true, ducking: false });
+  assert.deepEqual(obs.dino, { x: 23, width: 44, elev: 33, jumping: true, falling: false, vy: -4, ducking: false });
   assert.equal(obs.obstacles.length, 2);
   assert.equal(obs.obstacles[0].kind, 'bird_mid');
   assert.equal(obs.obstacles[0].elev, 25);  // bottom at y=115, ground at y=140
@@ -76,6 +82,45 @@ test('driver: jumping out of a duck releases the duck first', () => {
   const r = fakeRunner({ ducking: true });
   new Driver(r).apply('jump', 1);
   assert.deepEqual(r.keys, [['up', KEY.DUCK], ['down', KEY.JUMP]]);
+});
+
+test('driver: a jump decided for after the current jump is pressed on landing', () => {
+  const r = fakeRunner();
+  const d = new Driver(r);
+  d.apply('jump', 10, 12, 9);          // pressed at tick 10
+  r.tRex.jumping = true;
+  d.apply('jump', 40, 12, 38);         // decided at tick 38, after that jump: buffer it
+  d.tick(41);
+  assert.equal(r.keys.length, 1, 'nothing is pressed mid-air');
+  r.tRex.jumping = false;
+  d.tick(42);
+  assert.deepEqual(r.keys, [['down', KEY.JUMP], ['down', KEY.JUMP]]);
+});
+
+test('driver: a late copy of the jump already taken is not buffered', () => {
+  const r = fakeRunner();
+  const d = new Driver(r);
+  d.apply('jump', 10, 12, 9);
+  r.tRex.jumping = true;
+  d.apply('jump', 13, 12, 8);          // decided before the jump at tick 10: the same jump, late
+  r.tRex.jumping = false;
+  d.tick(14);
+  assert.equal(r.keys.length, 1);
+});
+
+test('driver: a buffered jump expires, and a duck cancels it', () => {
+  const r = fakeRunner({ jumping: true });
+  const d = new Driver(r);
+  d.apply('jump', 20, 12, 19);
+  r.tRex.jumping = false;
+  d.tick(21 + JUMP_BUFFER_TICKS);
+  assert.equal(r.keys.length, 0, 'too late: expired');
+  r.tRex.jumping = true;
+  d.apply('jump', 50, 12, 49);
+  d.apply('duck', 51, 5, 50);
+  r.tRex.jumping = false;
+  d.tick(52);
+  assert.deepEqual(r.keys, [['down', KEY.DUCK]]);
 });
 
 test('driver: none releases a held duck and never jumps', () => {

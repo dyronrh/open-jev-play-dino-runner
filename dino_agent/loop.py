@@ -171,12 +171,18 @@ How the game is played, every tick, in real time:
 1. Code describes the scene in English using the policy's phrases: the dino's state, the nearest
    obstacle, and a distance phrase chosen from the obstacle's time-to-contact in ticks (60 ticks per
    second) using ttc_bins: ttc >= far -> "far", >= near -> "near", >= close -> "close", else "touching".
-   The time-to-contact is already reduced by the measured round-trip latency plus lead_frames.
+   The time-to-contact is measured to a point width_frac (0 = front edge, 0.5 = middle, 1 = back edge)
+   of the way into the obstacle, and is already reduced by the measured round-trip latency plus lead_frames.
+   With predict_landing true, a dino that will have landed by the time the answer arrives is described as
+   running on the ground, and a jump decided then is pressed the moment it lands.
 2. Laya, a small non-generative decision model, answers two multiple-choice questions about that text
    ("obstacle": ground/head/sky/none, "distance": far/near/close/touching) with probabilities.
 3. The rules map the answers to an action. A rule fires when the dino state is in its "dino" list and,
    for each question in "when", the answer is in the list with probability >= min_prob. First match
    wins; otherwise the action is "none". "duck" is held for hold_ticks unless renewed.
+   Dino states: ground, air (rising or at the top of a jump), falling (on the way down; only when
+   phrases.dino.falling exists), duck. "duck" while in the air is the game's fast fall: the dino drops
+   to the ground at once, so it can jump again sooner. Never fast-fall while rising over an obstacle.
 
 Game facts (the original game): a full jump lasts about 35 ticks and speed grows from 6 to 13
 px per tick. Tall cacti are 50 px high, small ones 35 px, and groups of 2-3 are wider, so they need a
@@ -187,7 +193,7 @@ makes the dino jump too early. Laya does best when the phrases say plainly what 
 option description is distinct, and when there are no numbers in the text.
 
 You may change: phrases, question instructions and option descriptions (not the option keys),
-ttc_bins, lead_frames, hold_ticks, min_prob, rules, checkpoint (english | multilingual). Keep
+ttc_bins, width_frac, predict_landing, lead_frames, hold_ticks, min_prob, rules, checkpoint (english | multilingual). Keep
 changes small and targeted at the deaths in the report: one idea per proposal.
 
 Reply with ONE JSON object and nothing else: a patch that is deep-merged into the current policy

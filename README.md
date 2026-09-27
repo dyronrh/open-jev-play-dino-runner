@@ -159,11 +159,13 @@ answers. There is no fallback player.
 
 | Key | Meaning |
 |---|---|
-| `checkpoint` | `english` (calibrated, best general accuracy) or `multilingual` (~1.6× faster, uncalibrated) |
+| `checkpoint` | `english` (calibrated, best general accuracy) or `multilingual` (~2.8× faster on MPS, uncalibrated; the default policy's phrases are tuned for it) |
 | `ttc_bins` | Time-to-contact thresholds in ticks: `far > near > close`. The "close" window is where the default policy jumps |
+| `width_frac` | Optional, default 0. Where time to contact is measured: 0 = obstacle's front edge, 0.5 = its middle, 1 = its back edge. Higher values jump later over wide groups |
+| `predict_landing` | Optional, default false. When true, a dino that will have landed by the time the answer arrives is described as on the ground; the page presses a jump decided then as soon as it lands |
 | `lead_frames` | Extra ticks of look-ahead on top of the measured latency |
 | `hold_ticks` | How long a duck is held without renewal |
-| `phrases` | The words for each dino state, each obstacle kind, each distance bin, and a clear path |
+| `phrases` | The words for each dino state, each obstacle kind, each distance bin, and a clear path. `phrases.dino.falling` is optional; with it, a jump's way down is its own state, `falling` |
 | `questions` | Laya question wording and option descriptions. The ids and option keys are fixed |
 | `rules` | `{action, when: {question: [options]}, dino: [states]}`, first match wins |
 | `min_prob` | Minimum probability per question for a rule to fire |
@@ -222,9 +224,46 @@ fine-tuning.
 
 ## Measured so far
 
+### Laya, Apple M3 Pro (MPS)
+
+Laya 0.3.20 on the GPU (MPS), headless Chromium, 90 s per seed. The two policies were played
+alternately, seed by seed, in one process, so that both saw the same machine load. Latency on this
+laptop drifted between about 55 and 85 ms during the day, and that moved scores more than any rule
+change did. Compare policies only when they are interleaved like this.
+
+| Policy | Checkpoint | Offline accuracy (obstacle / distance) | Offline latency p50 | Seeds 1-6 | Median | Survived 90 s |
+|---|---|---|---|---|---|---|
+| `policies/english.json` | english | 97.3 % / 95.5 % | 54.5 ms | 429, 743, 659, 733, 1444, 1444 | 738 | 2/6 |
+| `policies/default.json` | multilingual | 100 % / 91.9 % | 19.4 ms | 429, 996, 661, 1444, 1444, 1444 | **1220** | **3/6** |
+
+- With its phrases rewritten, the multilingual checkpoint makes the same decision as the ground truth
+  in every scene `eval_questions` enumerates, and it is about 2.8 times faster than english. With the
+  english phrases it scored only 61 % / 63 %: "flies" made it answer "sky" for a low pterodactyl, and
+  long distance phrases all collapsed into "near". Short, distinct words that match the option
+  descriptions fixed both. The comma after the pterodactyl phrases matters.
+- Letting the jump rule fire on "touching" as well as "close" roughly doubled the median. Without it,
+  a dino that landed with an obstacle already in front did nothing.
+- A fast-fall rule (the optional `falling` state) scored worse in an interleaved test (median 863 vs
+  1075), so the default policy does not use it.
+- Landing prediction (`predict_landing`) was then turned on in the default policy. On back-to-back
+  obstacles the dino used to land with the next one already in its jump window, and the answer in
+  flight still said "in the air", so it did nothing for one more round trip. Seed 1 died at 429 on a
+  low pterodactyl this way in about half the runs. Interleaved over seeds 1, 1, 1, 2-6, with Laya and the
+  multilingual policy:
+
+  | `predict_landing` | Scores | Median | Survived 90 s |
+  |---|---|---|---|
+  | false | 973, 974, 975, 997, 1221, 344, 1444, 1230 | 986 | 1/8 |
+  | true | 1444, 974, 1435, 1444, 1222, 732, 1444, 1444 | **1440** | **4/8** |
+
+  It was never worse on any pair. The 429 death did not come up in this test with either setting,
+  so the gain is measured on the whole set, not on that death alone.
+
+### Oracle (simulated latency)
+
 All numbers below are for the oracle brain (perfect perception) with a simulated delay, playing the
-original game in headless Chromium with the default policy. **They are not Laya results.** Real Laya
-numbers still have to be collected with `eval_questions` and `bench`; please add them here.
+original game in headless Chromium with the first default policy (english phrases, jump on "close"
+only). **They are not Laya results.** Laya numbers on other devices are welcome; please add them above.
 
 | Simulated latency | Like | Seeds × 90 s | Result |
 |---|---|---|---|
@@ -263,7 +302,8 @@ English / 21 ms multilingual on the GPU, 139 / 58 ms on the CPU.
 | `dino_agent/bench.py` | CLI: benchmark a policy over seeds |
 | `dino_agent/eval_questions.py` | CLI: exact perception accuracy over every scene a policy can describe |
 | `dino_agent/loop.py` | The ADK agents and the loop CLI |
-| `policies/default.json` | The starting policy |
+| `policies/default.json` | The starting policy: the `multilingual` checkpoint, with phrases tuned for it |
+| `policies/english.json` | The same rules for the `english` checkpoint: slower, for comparison |
 | `tests/` | pytest suite |
 
 ## Contributing

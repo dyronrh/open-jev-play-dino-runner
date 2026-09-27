@@ -57,7 +57,7 @@ function onReady(r) {
     },
     onAct: msg => {
       if (mode() !== 'agent' || !runner.playing || runner.crashed || !client.fresh(msg, tick)) return;
-      driver.apply(msg.action, tick, msg.hold_ticks);
+      driver.apply(msg.action, tick, msg.hold_ticks, msg.tick);
       recent.push({ tick: msg.tick, applied_at: tick, action: msg.action, text: msg.text, answers: msg.answers, latency_ms: msg.latency_ms });
       if (recent.length > 5) recent.shift();
       showDecision(msg);
